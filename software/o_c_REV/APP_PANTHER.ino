@@ -1,6 +1,6 @@
-// Copyright (c) 2016 Patrick Dowling
+// Copyright (c) 2016 Michael Hetrick
 //
-// Author: Patrick Dowling (pld@gurkenkiste.com)
+// Author: Michael Hetrick (michael [dot] s [dot] hetrick [at] gmail [dot] com)
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 //
-// Very simple "reference" voltage app
+// JAG-like cartesian CV plane.
 
 #include "OC_apps.h"
 #include "OC_menus.h"
@@ -44,23 +44,39 @@ public:
   void Init()
   {
     InitDefaults();
+    out1 = 0;
+    out2 = 0;
+    out3 = 0;
+    out4 = 0;
+    currentX = 0;
+    currentY = 0;
+    cvXIsBipolar = false;
+    cvYIsBipolar = false;
   }
 
 
-  void Update()
+  void ISR()
   {
+    cv_posx.push(OC::ADC::value<ADC_CHANNEL_1>());
+    cv_posy.push(OC::ADC::value<ADC_CHANNEL_2>());
+    cv3.push(OC::ADC::value<ADC_CHANNEL_3>());
+    cv4.push(OC::ADC::value<ADC_CHANNEL_4>());
+
     currentX = cv_posx.value();
     currentY = cv_posy.value();
 
+    CONSTRAIN(currentX, 0, OC::DAC::MAX_VALUE);
+    CONSTRAIN(currentY, 0, OC::DAC::MAX_VALUE);
+
     out1 = calcDistance(0, OC::DAC::MAX_VALUE);
     out2 = calcDistance(OC::DAC::MAX_VALUE, OC::DAC::MAX_VALUE);
-    out3 = calcDistance(OC::DAC::MAX_VALUE, 0);
-    out4 = calcDistance(0, 0);
+    out3 = OC::DAC::MAX_VALUE - out1; //THIS OPTIMIZATION ONLY WORKS AT DEFAULT POSITIONS
+    out4 = OC::DAC::MAX_VALUE - out2;
 
-    OC::DAC::set<DAC_CHANNEL_A>(OC::DAC::get_zero_offset(DAC_CHANNEL_A) + out1);
-    OC::DAC::set<DAC_CHANNEL_B>(OC::DAC::get_zero_offset(DAC_CHANNEL_B) + out2);
-    OC::DAC::set<DAC_CHANNEL_C>(OC::DAC::get_zero_offset(DAC_CHANNEL_C) + out3);
-    OC::DAC::set<DAC_CHANNEL_D>(OC::DAC::get_zero_offset(DAC_CHANNEL_D) + out4);
+    OC::DAC::set<DAC_CHANNEL_A>(out1);
+    OC::DAC::set<DAC_CHANNEL_B>(out2);
+    OC::DAC::set<DAC_CHANNEL_C>(out3);
+    OC::DAC::set<DAC_CHANNEL_D>(out4);
   }
 
   //http://www.stm32duino.com/viewtopic.php?t=56
@@ -109,22 +125,21 @@ private:
 
 SETTINGS_DECLARE(PantherApp, PANTHER_NUM_SETTINGS)
 {
-  { 255, 0, 255, "Out 1 Scale", nullptr, settings::STORAGE_TYPE_U8 },
-  { 255, 0, 255, "Out 2 Scale", nullptr, settings::STORAGE_TYPE_U8 },
-  { 255, 0, 255, "Out 3 Scale", nullptr, settings::STORAGE_TYPE_U8 },
-  { 255, 0, 255, "Out 4 Scale", nullptr, settings::STORAGE_TYPE_U8 },
+  { 255, 0, 255, "Out 1", nullptr, settings::STORAGE_TYPE_U8 },
+  { 255, 0, 255, "Out 2", nullptr, settings::STORAGE_TYPE_U8 },
+  { 255, 0, 255, "Out 3", nullptr, settings::STORAGE_TYPE_U8 },
+  { 255, 0, 255, "Out 4", nullptr, settings::STORAGE_TYPE_U8 },
 };
 
 PantherApp pantherApp;
-struct {
-  bool selected_generator;
-
+struct{
   menu::ScreenCursor<menu::kScreenLines> cursor;
 } pantherState;
 
 // App stubs
 void PANTHER_init()
 {
+  pantherState.cursor.Init(PANTHER_SETTING_OUT1SCALE, PANTHER_NUM_SETTINGS - 1);
   pantherApp.Init();
 }
 
@@ -143,13 +158,9 @@ size_t PANTHER_restore(const void *storage)
   return pantherApp.Restore(storage);
 }
 
-void PANTHER_isr()
+void FASTRUN PANTHER_isr()
 {
-  pantherApp.cv_posx.push(OC::ADC::value<ADC_CHANNEL_1>());
-  pantherApp.cv_posy.push(OC::ADC::value<ADC_CHANNEL_2>());
-  pantherApp.cv3.push(OC::ADC::value<ADC_CHANNEL_3>());
-  pantherApp.cv4.push(OC::ADC::value<ADC_CHANNEL_4>());
-  pantherApp.Update();
+  pantherApp.ISR();
 }
 
 void PANTHER_handleAppEvent(OC::AppEvent event)
@@ -189,7 +200,7 @@ void PantherApp::RenderScreensaver(weegfx::coord_t start_x) const
 
 void PANTHER_screensaver()
 {
-  OC::vectorscope_render();
+  OC::scope_render();
 }
 
 void PANTHER_topButton()
@@ -202,7 +213,7 @@ void PANTHER_lowerButton()
 
 }
 
-void PANTHER_rightButton() 
+void PANTHER_rightButton()
 {
   pantherState.cursor.toggle_editing();
 }
