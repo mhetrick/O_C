@@ -68,7 +68,7 @@ public:
     cv3.push(OC::ADC::smoothed_raw_value(ADC_CHANNEL_3));
     cv4.push(OC::ADC::value<ADC_CHANNEL_4>());
 
-    currentX = cv_posx.value();
+    currentX = 4096 - cv_posx.value();
     currentY = cv_posy.value();
     currentXVisual = currentX >> 7;
     currentYVisual = currentY >> 7;
@@ -224,13 +224,13 @@ void PANTHER_menu()
 
 void PantherApp::RenderScreensaver() const
 {
-  const uint16_t squareSize = 5;
+  const uint16_t squareSize = 4;
   const uint16_t frameSize = 32;
 
-  const uint16_t xPos = currentXVisual + 64;
+  const uint16_t xPos = currentXVisual + 48;
   const uint16_t yPos = currentYVisual + 16;
-  graphics.drawFrame(64, 16, frameSize, frameSize);
-  graphics.drawRect(xPos, yPos, squareSize, squareSize);
+  graphics.drawFrame(48, 16, frameSize, frameSize);
+  graphics.drawRect(xPos - 2, yPos - 2, squareSize, squareSize);
 }
 
 void PANTHER_screensaver()
