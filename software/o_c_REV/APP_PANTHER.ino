@@ -75,10 +75,10 @@ public:
 
     scaledCV3Output = cv3.value() * 16;
 
-    out1Factor = calcDistance(4096, 0);
-    out2Factor = calcDistance(0, 0);
-    out3Factor = calcDistance(4096, 4096);
-    out4Factor = calcDistance(0, 4096);
+    out1Factor = calcDistance(4096, 4096);
+    out2Factor = calcDistance(0, 4096);
+    out3Factor = calcDistance(4096, 0);
+    out4Factor = calcDistance(0, 0);
 
     out1 = uint32_t(out1Factor * 16);
     out2 = uint32_t(out2Factor * 16);
