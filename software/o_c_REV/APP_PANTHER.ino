@@ -29,6 +29,7 @@
 
 enum PANTHER_SETTINGS
 {
+  PANTHER_SETTING_OUTSOURCE,
   PANTHER_SETTING_OUT1SCALE,
   PANTHER_SETTING_OUT2SCALE,
   PANTHER_SETTING_OUT3SCALE,
@@ -48,35 +49,52 @@ public:
     out2 = 0;
     out3 = 0;
     out4 = 0;
-    currentX = 0;
-    currentY = 0;
+    currentX = 0.0f;
+    currentY = 0.0f;
     cvXIsBipolar = false;
     cvYIsBipolar = false;
+    scaledCV3Output = 0;
   }
 
+  uint8_t getOutputSource() const
+  {
+    return values_[PANTHER_SETTING_OUTSOURCE];
+  }
 
   void ISR()
   {
-    cv_posx.push(OC::ADC::value<ADC_CHANNEL_1>());
-    cv_posy.push(OC::ADC::value<ADC_CHANNEL_2>());
-    cv3.push(OC::ADC::value<ADC_CHANNEL_3>());
+    cv_posx.push(OC::ADC::smoothed_raw_value(ADC_CHANNEL_1));
+    cv_posy.push(OC::ADC::smoothed_raw_value(ADC_CHANNEL_2));
+    cv3.push(OC::ADC::smoothed_raw_value(ADC_CHANNEL_3));
     cv4.push(OC::ADC::value<ADC_CHANNEL_4>());
 
     currentX = cv_posx.value();
     currentY = cv_posy.value();
+    currentXVisual = currentX >> 7;
+    currentYVisual = currentY >> 7;
 
-    CONSTRAIN(currentX, 0, OC::DAC::MAX_VALUE);
-    CONSTRAIN(currentY, 0, OC::DAC::MAX_VALUE);
+    scaledCV3Output = cv3.value() * 16;
 
-    out1 = calcDistance(0, OC::DAC::MAX_VALUE);
-    out2 = calcDistance(OC::DAC::MAX_VALUE, OC::DAC::MAX_VALUE);
-    out3 = OC::DAC::MAX_VALUE - out1; //THIS OPTIMIZATION ONLY WORKS AT DEFAULT POSITIONS
-    out4 = OC::DAC::MAX_VALUE - out2;
+    out1Factor = calcDistance(4096, 0);
+    out2Factor = calcDistance(0, 0);
+    out3Factor = calcDistance(4096, 4096);
+    out4Factor = calcDistance(0, 4096);
+
+    out1 = uint32_t(out1Factor * 16);
+    out2 = uint32_t(out2Factor * 16);
+    out3 = uint32_t(out3Factor * 16);
+    out4 = uint32_t(out4Factor * 16);
 
     OC::DAC::set<DAC_CHANNEL_A>(out1);
     OC::DAC::set<DAC_CHANNEL_B>(out2);
     OC::DAC::set<DAC_CHANNEL_C>(out3);
     OC::DAC::set<DAC_CHANNEL_D>(out4);
+  }
+
+  uint32_t getScalingFactor() const
+  {
+    //if (getOutputSource()) return scaledCV3Output;
+    return OC::DAC::MAX_VALUE;
   }
 
   //http://www.stm32duino.com/viewtopic.php?t=56
@@ -108,23 +126,34 @@ public:
       return sqrt32(summed);
   }
 
-  void RenderScreensaver(weegfx::coord_t start_x) const;
+  void RenderScreensaver() const;
 
   // ISR update is at 16.666kHz, we don't need it that fast so smooth the values to ~1Khz
   static constexpr int32_t kSmoothing = 16;
-  SmoothedValue<int32_t, kSmoothing> cv_posx;
-  SmoothedValue<int32_t, kSmoothing> cv_posy;
-  SmoothedValue<int32_t, kSmoothing> cv3;
+  SmoothedValue<uint32_t, kSmoothing> cv_posx;
+  SmoothedValue<uint32_t, kSmoothing> cv_posy;
+  SmoothedValue<uint32_t, kSmoothing> cv3;
   SmoothedValue<int32_t, kSmoothing> cv4;
 
 private:
   uint32_t out1, out2, out3, out4;
-  int32_t currentX, currentY;
+  uint32_t out1Factor, out2Factor, out3Factor, out4Factor;
+  uint32_t currentX, currentY;
+  uint32_t currentXVisual, currentYVisual;
+  uint32_t scaledCV3Output;
   bool cvXIsBipolar, cvYIsBipolar;
 };
 
+
+const char* const pantherOutSources[] =
+{
+  "+V", "CV3"
+};
+
+
 SETTINGS_DECLARE(PantherApp, PANTHER_NUM_SETTINGS)
 {
+  { 0, 0, 1, "Out Source", pantherOutSources, settings::STORAGE_TYPE_U8 },
   { 255, 0, 255, "Out 1", nullptr, settings::STORAGE_TYPE_U8 },
   { 255, 0, 255, "Out 2", nullptr, settings::STORAGE_TYPE_U8 },
   { 255, 0, 255, "Out 3", nullptr, settings::STORAGE_TYPE_U8 },
@@ -139,7 +168,7 @@ struct{
 // App stubs
 void PANTHER_init()
 {
-  pantherState.cursor.Init(PANTHER_SETTING_OUT1SCALE, PANTHER_NUM_SETTINGS - 1);
+  pantherState.cursor.Init(0, PANTHER_NUM_SETTINGS - 1);
   pantherApp.Init();
 }
 
@@ -193,14 +222,21 @@ void PANTHER_menu()
   }
 }
 
-void PantherApp::RenderScreensaver(weegfx::coord_t start_x) const
+void PantherApp::RenderScreensaver() const
 {
+  const uint16_t squareSize = 5;
+  const uint16_t frameSize = 32;
 
+  const uint16_t xPos = currentXVisual + 64;
+  const uint16_t yPos = currentYVisual + 16;
+  graphics.drawFrame(64, 16, frameSize, frameSize);
+  graphics.drawRect(xPos, yPos, squareSize, squareSize);
 }
 
 void PANTHER_screensaver()
 {
   OC::scope_render();
+  pantherApp.RenderScreensaver();
 }
 
 void PANTHER_topButton()
