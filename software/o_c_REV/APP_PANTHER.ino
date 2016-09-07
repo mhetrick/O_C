@@ -31,142 +31,128 @@ const uint32_t pantherZeroDistance = 4096;
 
 enum PANTHER_SETTINGS
 {
-  PANTHER_SETTING_OUTSOURCE,
-  PANTHER_SETTING_OUT1SCALE,
-  PANTHER_SETTING_OUT2SCALE,
-  PANTHER_SETTING_OUT3SCALE,
-  PANTHER_SETTING_OUT4SCALE,
-  //PANTHER_SETTING_IN1RANGE,
-  //PANTHER_SETTING_IN2RANGE
+  PANTHER_SETTING_UNIBICVX,
+  PANTHER_SETTING_UNIBICVY,
+  PANTHER_SETTING_UNIBIOUT1,
+  PANTHER_SETTING_UNIBIOUT2,
+  PANTHER_SETTING_UNIBIOUT3,
+  PANTHER_SETTING_UNIBIOUT4,
   PANTHER_NUM_SETTINGS
+};
+
+class PantherDac
+{
+  public:
+    void init(int32_t _positionX, int32_t _positionY)
+    {
+      positionX = _positionX;
+      positionY = _positionY;
+    }
+
+    //http://www.stm32duino.com/viewtopic.php?t=56
+    uint32_t sqrt32(unsigned long n)
+    {
+      unsigned int c = 0x8000;
+      unsigned int g = 0x8000;
+
+      for(;;)
+      {
+          if(g*g > n)
+          {
+              g ^= c;
+          }
+          c >>= 1;
+          if(c == 0)
+          {
+              return g;
+          }
+          g |= c;
+      }
+    }
+
+    template <DAC_CHANNEL dacChannel>
+    void update(const uint32_t _currentX, const uint32_t _currentY, const uint32_t _currentZ)
+    {
+      const int32_t xDiff = positionX - _currentX;
+      const int32_t yDiff = positionY - _currentY;
+      const uint32_t zDistance = _currentZ*_currentZ;
+      const uint32_t summed = xDiff*xDiff + yDiff*yDiff + zDistance;
+
+      outFactor = sqrt32(summed);
+      CONSTRAIN(outFactor, 0, pantherZeroDistance);
+      outFactor = pantherZeroDistance - outFactor;
+
+      dacOut = uint32_t(outFactor * 16);
+      OC::DAC::set<dacChannel>(dacOut);
+    }
+  private:
+    uint32_t dacOut, outFactor;
+    int32_t positionX, positionY;
 };
 
 class PantherApp : public settings::SettingsBase<PantherApp, PANTHER_NUM_SETTINGS>
 {
-public:
-  void Init()
-  {
-    InitDefaults();
-    out1 = 0;
-    out2 = 0;
-    out3 = 0;
-    out4 = 0;
-    currentX = 0.0f;
-    currentY = 0.0f;
-    cvXIsBipolar = false;
-    cvYIsBipolar = false;
-    scaledCV3Output = 0;
-  }
-
-  uint8_t getOutputSource() const
-  {
-    return values_[PANTHER_SETTING_OUTSOURCE];
-  }
-
-  void ISR()
-  {
-    cv_posx.push(OC::ADC::smoothed_raw_value(ADC_CHANNEL_1));
-    cv_posy.push(OC::ADC::smoothed_raw_value(ADC_CHANNEL_2));
-    cv3.push(OC::ADC::smoothed_raw_value(ADC_CHANNEL_3));
-    cv4.push(OC::ADC::value<ADC_CHANNEL_4>());
-
-    currentX = cv_posx.value();
-    currentY = 4096 - cv_posy.value();
-
-    scaledCV3Output = cv3.value() * 16;
-
-    out1Factor = calcDistance(0, 4096);
-    out2Factor = calcDistance(4096, 4096);
-    out3Factor = calcDistance(0, 0);
-    out4Factor = calcDistance(4096, 0);
-
-    CONSTRAIN(out1Factor, 0, pantherZeroDistance);
-    CONSTRAIN(out2Factor, 0, pantherZeroDistance);
-    CONSTRAIN(out3Factor, 0, pantherZeroDistance);
-    CONSTRAIN(out4Factor, 0, pantherZeroDistance);
-
-    out1Factor = pantherZeroDistance - out1Factor;
-    out2Factor = pantherZeroDistance - out2Factor;
-    out3Factor = pantherZeroDistance - out3Factor;
-    out4Factor = pantherZeroDistance - out4Factor;
-
-    out1 = uint32_t(out1Factor * 16);
-    out2 = uint32_t(out2Factor * 16);
-    out3 = uint32_t(out3Factor * 16);
-    out4 = uint32_t(out4Factor * 16);
-
-    OC::DAC::set<DAC_CHANNEL_A>(out1);
-    OC::DAC::set<DAC_CHANNEL_B>(out2);
-    OC::DAC::set<DAC_CHANNEL_C>(out3);
-    OC::DAC::set<DAC_CHANNEL_D>(out4);
-  }
-
-  uint32_t getScalingFactor() const
-  {
-    //if (getOutputSource()) return scaledCV3Output;
-    return OC::DAC::MAX_VALUE;
-  }
-
-  //http://www.stm32duino.com/viewtopic.php?t=56
-  uint32_t sqrt32(unsigned long n)
-  {
-    unsigned int c = 0x8000;
-    unsigned int g = 0x8000;
-
-    for(;;)
+  public:
+    void Init()
     {
-        if(g*g > n)
-        {
-            g ^= c;
-        }
-        c >>= 1;
-        if(c == 0)
-        {
-            return g;
-        }
-        g |= c;
+      InitDefaults();
+      dac1.init(0, 4096);
+      dac2.init(4096, 4096);
+      dac3.init(0, 0);
+      dac4.init(4096, 0);
+
+      currentX = 0.0f;
+      currentY = 0.0f;
     }
-  }
 
-  uint32_t calcDistance(int32_t outX, int32_t outY)
-  {
-      const int32_t xDiff = outX - currentX;
-      const int32_t yDiff = outY - currentY;
-      const uint32_t summed = xDiff*xDiff + yDiff*yDiff;
-      return sqrt32(summed);
-  }
+    void ISR()
+    {
+      cv_posx.push(OC::ADC::smoothed_raw_value(ADC_CHANNEL_1));
+      cv_posy.push(OC::ADC::smoothed_raw_value(ADC_CHANNEL_2));
+      cv_posz.push(OC::ADC::value<ADC_CHANNEL_3>());
+      cv4.push(OC::ADC::value<ADC_CHANNEL_4>());
 
-  void RenderScreensaver() const;
+      currentX = 4096 - cv_posx.value();
+      currentY = 4096 - cv_posy.value();
+      incomingZ = cv_posz.value();
+      currentZ = incomingZ > 0 ? incomingZ : 0;
 
-  // ISR update is at 16.666kHz, we don't need it that fast so smooth the values to ~1Khz
-  static constexpr int32_t kSmoothing = 16;
-  SmoothedValue<uint32_t, kSmoothing> cv_posx;
-  SmoothedValue<uint32_t, kSmoothing> cv_posy;
-  SmoothedValue<uint32_t, kSmoothing> cv3;
-  SmoothedValue<int32_t, kSmoothing> cv4;
+      dac1.update<DAC_CHANNEL_A>(currentX, currentY, currentZ);
+      dac2.update<DAC_CHANNEL_B>(currentX, currentY, currentZ);
+      dac3.update<DAC_CHANNEL_C>(currentX, currentY, currentZ);
+      dac4.update<DAC_CHANNEL_D>(currentX, currentY, currentZ);
+    }
 
-private:
-  uint32_t out1, out2, out3, out4;
-  uint32_t out1Factor, out2Factor, out3Factor, out4Factor;
-  uint32_t currentX, currentY;
-  uint32_t scaledCV3Output;
-  bool cvXIsBipolar, cvYIsBipolar;
+    void RenderScreensaver() const;
+
+    // ISR update is at 16.666kHz, we don't need it that fast so smooth the values to ~1Khz
+    static constexpr int32_t kSmoothing = 16;
+    SmoothedValue<uint32_t, kSmoothing> cv_posx;
+    SmoothedValue<uint32_t, kSmoothing> cv_posy;
+    SmoothedValue<int32_t, kSmoothing> cv_posz;
+    SmoothedValue<int32_t, kSmoothing> cv4;
+
+  private:
+    PantherDac dac1, dac2, dac3, dac4;
+    uint32_t currentX, currentY, currentZ;
+    int32_t incomingZ;
 };
 
 
-const char* const pantherOutSources[] =
+const char* const pantherUniBi[] =
 {
-  "+V", "CV3"
+  "Uni", "Bi"
 };
 
 
 SETTINGS_DECLARE(PantherApp, PANTHER_NUM_SETTINGS)
 {
-  { 0, 0, 1, "Out Source", pantherOutSources, settings::STORAGE_TYPE_U8 },
-  { 255, 0, 255, "Out 1", nullptr, settings::STORAGE_TYPE_U8 },
-  { 255, 0, 255, "Out 2", nullptr, settings::STORAGE_TYPE_U8 },
-  { 255, 0, 255, "Out 3", nullptr, settings::STORAGE_TYPE_U8 },
-  { 255, 0, 255, "Out 4", nullptr, settings::STORAGE_TYPE_U8 },
+  { 1, 0, 1, "CV X", pantherUniBi, settings::STORAGE_TYPE_U8 },
+  { 1, 0, 1, "CV Y", pantherUniBi, settings::STORAGE_TYPE_U8 },
+  { 1, 0, 1, "Out 1", pantherUniBi, settings::STORAGE_TYPE_U8 },
+  { 1, 0, 1, "Out 2", pantherUniBi, settings::STORAGE_TYPE_U8 },
+  { 1, 0, 1, "Out 3", pantherUniBi, settings::STORAGE_TYPE_U8 },
+  { 1, 0, 1, "Out 4", pantherUniBi, settings::STORAGE_TYPE_U8 },
 };
 
 PantherApp pantherApp;
