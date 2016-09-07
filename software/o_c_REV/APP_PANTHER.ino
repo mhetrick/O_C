@@ -27,6 +27,8 @@
 #include "OC_strings.h"
 #include "util/util_settings.h"
 
+const uint32_t pantherZeroDistance = 4096;
+
 enum PANTHER_SETTINGS
 {
   PANTHER_SETTING_OUTSOURCE,
@@ -68,17 +70,25 @@ public:
     cv3.push(OC::ADC::smoothed_raw_value(ADC_CHANNEL_3));
     cv4.push(OC::ADC::value<ADC_CHANNEL_4>());
 
-    currentX = 4096 - cv_posx.value();
-    currentY = cv_posy.value();
-    currentXVisual = currentX >> 7;
-    currentYVisual = currentY >> 7;
+    currentX = cv_posx.value();
+    currentY = 4096 - cv_posy.value();
 
     scaledCV3Output = cv3.value() * 16;
 
-    out1Factor = calcDistance(4096, 4096);
-    out2Factor = calcDistance(0, 4096);
-    out3Factor = calcDistance(4096, 0);
-    out4Factor = calcDistance(0, 0);
+    out1Factor = calcDistance(0, 4096);
+    out2Factor = calcDistance(4096, 4096);
+    out3Factor = calcDistance(0, 0);
+    out4Factor = calcDistance(4096, 0);
+
+    CONSTRAIN(out1Factor, 0, pantherZeroDistance);
+    CONSTRAIN(out2Factor, 0, pantherZeroDistance);
+    CONSTRAIN(out3Factor, 0, pantherZeroDistance);
+    CONSTRAIN(out4Factor, 0, pantherZeroDistance);
+
+    out1Factor = pantherZeroDistance - out1Factor;
+    out2Factor = pantherZeroDistance - out2Factor;
+    out3Factor = pantherZeroDistance - out3Factor;
+    out4Factor = pantherZeroDistance - out4Factor;
 
     out1 = uint32_t(out1Factor * 16);
     out2 = uint32_t(out2Factor * 16);
@@ -139,7 +149,6 @@ private:
   uint32_t out1, out2, out3, out4;
   uint32_t out1Factor, out2Factor, out3Factor, out4Factor;
   uint32_t currentX, currentY;
-  uint32_t currentXVisual, currentYVisual;
   uint32_t scaledCV3Output;
   bool cvXIsBipolar, cvYIsBipolar;
 };
@@ -224,13 +233,18 @@ void PANTHER_menu()
 
 void PantherApp::RenderScreensaver() const
 {
+  //128x64 screen
+  //y 0 == top
+  const uint16_t currentXVisual = currentX >> 7;
+  const uint16_t currentYVisual = currentY >> 7;
+
   const uint16_t squareSize = 4;
   const uint16_t frameSize = 32;
 
   const uint16_t xPos = currentXVisual + 48;
   const uint16_t yPos = currentYVisual + 16;
   graphics.drawFrame(48, 16, frameSize, frameSize);
-  graphics.drawRect(xPos - 2, yPos - 2, squareSize, squareSize);
+  graphics.drawRect(xPos - 2, 62 - yPos, squareSize, squareSize);
 }
 
 void PANTHER_screensaver()
